@@ -549,6 +549,10 @@ GLOBAL_LIST_INIT(roguetown_areas_typecache, typecacheof(/area/rogue/indoors/town
 /area/rogue/indoors/town/vault/can_craft_here()
 	return FALSE
 
+/area/rogue/indoors/town/vault/dukevault
+	name = "duke's vault"
+	icon_state = "dukevault"
+
 /area/rogue/indoors/town/entrance
 	icon_state = "entrance"
 

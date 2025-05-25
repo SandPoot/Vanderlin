@@ -128,6 +128,7 @@
 	var/budget = 0
 	var/upgrade_flags
 	var/current_cat = "1"
+	var/secrets_accessible = TRUE
 
 /obj/structure/fake_machine/merchantvend/Initialize()
 	. = ..()
@@ -194,7 +195,7 @@
 			budget = 0
 	if(href_list["changecat"])
 		current_cat = href_list["changecat"]
-	if(href_list["secrets"])
+	if(secrets_accessible && href_list["secrets"])
 		var/list/options = list()
 		if(upgrade_flags & UPGRADE_NOTAX)
 			options += "Enable Paying Taxes"
@@ -231,7 +232,7 @@
 	contents += "<a href='byond://?src=[REF(src)];change=1'>MAMMON LOADED:</a> [budget]<BR>"
 
 	var/mob/living/carbon/human/H = user
-	if(H.job == "Merchant")
+	if(secrets_accessible && (H.job == "Merchant"))
 		if(canread)
 			contents += "<a href='byond://?src=[REF(src)];secrets=1'>Secrets</a>"
 		else
@@ -266,5 +267,92 @@
 	var/datum/browser/popup = new(user, "VENDORTHING", "", 370, 400)
 	popup.set_content(contents)
 	popup.open()
+
+/obj/structure/fake_machine/merchantvend/special
+	name = "<i>GOLDFACE</i>"
+	secrets_accessible = FALSE
+	upgrade_flags = UPGRADE_NOTAX
+	lock = null
+
+/obj/structure/fake_machine/merchantvend/special/attackby(obj/item/I, mob/user, params)
+	if(!istype(I) || istype(I, /obj/item/coin))
+		return ..()
+	if(HAS_TRAIT(I, ABSTRACT_ITEM_TRAIT))
+		return ..()
+	if(locked())
+		return ..()
+
+	var/value = I.get_real_price()
+	if(value <= 20)
+		to_chat(user, span_warning("[I] has too low of a value and was refused."))
+		return
+	value = ROUND_UP(value * 0.6)
+	if(alert(user, "Do you want to sell [I] for [value]?\nThis cannot be undone.", src, "Yes", "No") == "No")
+		return
+	if(!user.temporarilyRemoveItemFromInventory(I))
+		to_chat(user, span_warning("[I] is stuck to your hand, you can't sell it!"))
+		return
+
+	budget += value
+	qdel(I)
+	to_chat(user, span_info("I sold [I] for [value] mammon."))
+	playsound(get_turf(src), 'sound/misc/machinevomit.ogg', 100, TRUE, -1)
+	return attack_hand(user)
+
+/obj/structure/fake_machine/duke_redemption
+	name = "Duke Redemption"
+	desc = "A machine that redeems the Duke's vault money."
+	icon = 'icons/roguetown/misc/machines.dmi'
+	icon_state = "goldvendor"
+
+/obj/structure/fake_machine/duke_redemption/attack_hand(mob/living/user)
+	. = ..()
+	if(.)
+		return
+	if(!ishuman(user))
+		return
+	if(locked())
+		to_chat(user, "<span class='warning'>It's locked. Of course.</span>")
+		return
+	user.changeNext_move(CLICK_CD_MELEE)
+	playsound(loc, 'sound/misc/beep.ogg', 100, FALSE, -1)
+
+	var/contents
+	contents = "<center>DUKE REDEMPTION<BR>"
+	contents += "--------------<BR>"
+	contents += "Duke's Vault Money: <a href='byond://?src=[REF(src)];redeem=1'>[SStreasury.duke_treasury_value]</a><BR>"
+	contents += "</center><BR>"
+
+	if(!user.can_read(src, TRUE))
+		contents = stars(contents)
+	var/datum/browser/popup = new(user, "VENDORTHING", "", 370, 220)
+	popup.set_content(contents)
+	popup.open()
+
+/obj/structure/fake_machine/duke_redemption/Topic(href, list/href_list)
+	. = ..()
+	if(!ishuman(usr))
+		return
+	if(!usr.canUseTopic(src, BE_CLOSE) || locked())
+		return
+	if(SStreasury.duke_treasury_value < 1)
+		to_chat(usr, span_warning("It is empty!"))
+		return
+	if(!href_list["redeem"])
+		return
+	var/input = input(usr, "Please enter the amount of Duke's Vault Money to redeem.", "Redeem", "") as null|num
+	if(!input)
+		return
+	if(input < 1)
+		to_chat(usr, span_warning("You can't redeem less than 1!"))
+		return
+	input = min(input, SStreasury.duke_treasury_value)
+	var/obj/item/coin/money = new /obj/item/coin(get_turf(usr), input)
+	usr.put_in_hand(money)
+	SStreasury.duke_treasury_value -= input
+	to_chat(usr, span_info("I redeemed [input] Duke's Vault Money."))
+	playsound(get_turf(src), 'sound/misc/machinevomit.ogg', 100, TRUE, -1)
+	return attack_hand(usr)
+
 
 #undef UPGRADE_NOTAX

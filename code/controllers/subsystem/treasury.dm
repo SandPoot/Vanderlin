@@ -36,6 +36,7 @@ SUBSYSTEM_DEF(treasury)
 	var/tax_value = 0.11
 	var/queens_tax = 0.15
 	var/treasury_value = 0
+	var/duke_treasury_value = 0
 	var/list/bank_accounts = list()
 	var/list/noble_incomes = list()
 	var/list/stockpile_datums = list()
@@ -44,6 +45,7 @@ SUBSYSTEM_DEF(treasury)
 	var/next_treasury_check = 0
 	var/list/log_entries = list()
 	var/list/vault_accounting = list() //used for the vault count, cleared every fire()
+	var/list/vault_accounting_duke = list() //used for the duke's vault count, cleared every fire()
 
 /datum/controller/subsystem/treasury/Initialize()
 	//Randomizes the roundstart amount of money and the queens tax.
@@ -77,6 +79,7 @@ SUBSYSTEM_DEF(treasury)
 
 		//Checks all items in the vault.
 		var/amt_to_generate = CalcVaultIncome()
+		var/amount_to_generate_special = CalcDukeVaultIncome()
 
 		/*
 		* This is the final calculations of how
@@ -90,6 +93,9 @@ SUBSYSTEM_DEF(treasury)
 		amt_to_generate = amt_to_generate - (amt_to_generate * queens_tax)
 		amt_to_generate = round(amt_to_generate)
 		give_money_treasury(amt_to_generate, "Wealth Horde")
+		amount_to_generate_special = amount_to_generate_special - (amount_to_generate_special * queens_tax)
+		amount_to_generate_special = round(amount_to_generate_special)
+		give_money_duke_treasury(amount_to_generate_special, "Duke's Wealth Horde")
 		for(var/mob/living/carbon/human/X in GLOB.human_list)
 			if(!X.mind)
 				continue
@@ -105,6 +111,26 @@ SUBSYSTEM_DEF(treasury)
 /datum/controller/subsystem/treasury/proc/CalcVaultIncome()
 	vault_accounting = list()
 	var/area/A = GLOB.areas_by_type[/area/rogue/indoors/town/vault]
+	var/passive_income = 0
+	for(var/obj/I in A)
+		if(!isturf(I.loc))
+			continue
+		if(isitem(I))
+			passive_income += add_to_vault(I)
+		else if(istype(I, /obj/structure/closet))
+			for(var/obj/item/item in I.contents)
+				passive_income += add_to_vault(item)
+
+	return passive_income
+
+/*
+* Calculates Passive income based
+* on the items that are placed within
+* the vault. Resets vault tracking of duplicate items
+*/
+/datum/controller/subsystem/treasury/proc/CalcDukeVaultIncome()
+	vault_accounting = list()
+	var/area/A = GLOB.areas_by_type[/area/rogue/indoors/town/vault/dukevault]
 	var/passive_income = 0
 	for(var/obj/I in A)
 		if(!isturf(I.loc))
@@ -136,6 +162,25 @@ SUBSYSTEM_DEF(treasury)
 		total_value += item_value
 	return total_value
 
+/datum/controller/subsystem/treasury/proc/add_to_duke_vault(obj/item/item)
+	var/list/objects_to_search = list(item)
+	var/datum/component/storage/storage = item.GetComponent(/datum/component/storage)
+	if(storage)
+		objects_to_search |= storage.contents()
+	var/total_value = 0
+	for(var/atom/movable/movable_atom in objects_to_search)
+		if(is_type_in_typecache(movable_atom, GLOB.ITEM_DOES_NOT_GENERATE_VAULT_RENT))
+			continue
+		if(movable_atom.get_real_price() <= 0)
+			continue
+		//Passive income is 15% of the items worth.
+		var/item_value = movable_atom.get_real_price() * interest_rate
+		vault_accounting_duke[movable_atom.type] += 1
+		if(vault_accounting_duke[movable_atom.type] > 1)
+			item_value *= (multiple_item_penalty ** (vault_accounting_duke[movable_atom.type]-1))
+		total_value += item_value
+	return total_value
+
 /*
 * These procs are all called directly from
 * things outside of the system.
@@ -157,6 +202,18 @@ SUBSYSTEM_DEF(treasury)
 	if(!amt)
 		return
 	treasury_value += amt
+	if(silent)
+		return
+	if(source)
+		log_to_steward("+[amt] to treasury ([source])")
+	else
+		log_to_steward("+[amt] to treasury")
+
+//increments the treasury directly (tax collection)
+/datum/controller/subsystem/treasury/proc/give_money_duke_treasury(amt, source, silent = FALSE)
+	if(!amt)
+		return
+	duke_treasury_value += amt
 	if(silent)
 		return
 	if(source)
